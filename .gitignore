@@ -1,0 +1,17 @@
+# 빌드 중간 생성물 (언제든 재생성 가능)
+bin/
+obj/
+
+# 포장 결과물 (용량만 크고 재포장으로 복원 가능)
+publish/
+publish-single/
+
+# 구글 연동 인증 파일 — 절대 올리지 않음 (다음 작업 대비 미리 차단)
+client_secret*.json
+credentials.json
+token*/
+*.token
+
+# 편집기 개인 설정
+*.user
+.vs/

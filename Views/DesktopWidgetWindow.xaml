@@ -1,0 +1,65 @@
+<Window x:Class="EasyAlarm.Views.DesktopWidgetWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="EasyAlarm Widget"
+        Width="320" Height="96"
+        WindowStartupLocation="Manual"
+        WindowStyle="None"
+        AllowsTransparency="False"
+        ShowInTaskbar="False"
+        ResizeMode="NoResize"
+        ShowActivated="False"
+        Opacity="0.85"
+        MouseEnter="Widget_MouseEnter"
+        MouseLeave="Widget_MouseLeave">
+
+    <!-- 바깥 껍데기: 카드 -->
+    <Border x:Name="OuterBorder"
+            Background="#FFFFFF"
+            BorderThickness="2"
+            BorderBrush="#CCCCCC"
+            Padding="12,0">
+
+        <!-- 내용물 묶음을 세로 정중앙에 배치 -->
+        <StackPanel VerticalAlignment="Center">
+
+            <!-- 윗줄: 안내 문구(드래그 이동) + 목록 버튼 (같은 폰트 크기) -->
+            <Grid Margin="2,0,0,6">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <TextBlock x:Name="HintText"
+                           Grid.Column="0"
+                           Text="⏰ 쉽쉽알람 — 여기에 입력"
+                           FontSize="11"
+                           Foreground="#999999"
+                           VerticalAlignment="Center"
+                           MouseLeftButtonDown="HintText_MouseLeftButtonDown"/>
+
+                <Button x:Name="ListButton"
+                        Grid.Column="1"
+                        Content="목록"
+                        FontSize="11"
+                        Padding="6,1"
+                        Foreground="#999999"
+                        Background="Transparent"
+                        BorderThickness="0"
+                        Cursor="Hand"
+                        Click="ListButton_Click"/>
+            </Grid>
+
+            <!-- 입력칸 -->
+            <TextBox x:Name="InputBox"
+                     FontSize="14"
+                     Padding="8,6"
+                     BorderThickness="1"
+                     BorderBrush="#DDDDDD"
+                     Background="White"
+                     InputMethod.PreferredImeState="On"
+                     InputMethod.PreferredImeConversionMode="Native"
+                     KeyDown="InputBox_KeyDown"/>
+        </StackPanel>
+    </Border>
+</Window>
