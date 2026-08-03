@@ -37,9 +37,35 @@
             </Setter>
         </Style>
 
-        <!-- 스크롤바가 내용 '위에 겹쳐' 뜨는 오버레이 방식 ScrollViewer.
-             스크롤바는 스타일 없이 이 템플릿 안에서 '직접' 3px 두께로 조립합니다.
-             (직접 지정한 로컬 값은 테마/기본 스타일 등 무엇에도 밀리지 않는 최우선 값) -->
+        <!-- 설정(⚙) 버튼: 은은한 회색, 호버 시 진해짐 -->
+        <Style x:Key="IconButtonStyle" TargetType="Button">
+            <Setter Property="Foreground" Value="#9E9E9E"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="Padding" Value="8,2"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Bg"
+                                Background="{TemplateBinding Background}"
+                                CornerRadius="6"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center"
+                                              VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Foreground" Value="#424242"/>
+                                <Setter TargetName="Bg" Property="Background" Value="#14000000"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- 스크롤바가 내용 '위에 겹쳐' 뜨는 오버레이 방식 ScrollViewer -->
         <Style x:Key="OverlayScrollViewerStyle" TargetType="ScrollViewer">
             <Setter Property="VerticalScrollBarVisibility" Value="Auto"/>
             <Setter Property="Template">
@@ -62,7 +88,6 @@
                                        Visibility="{TemplateBinding ComputedVerticalScrollBarVisibility}">
                                 <ScrollBar.Template>
                                     <ControlTemplate TargetType="ScrollBar">
-                                        <!-- ▲▼ 버튼 없이 트랙과 손잡이(Thumb)만 -->
                                         <Track x:Name="PART_Track" IsDirectionReversed="True">
                                             <Track.Thumb>
                                                 <Thumb>
@@ -81,7 +106,6 @@
                             </ScrollBar>
                         </Grid>
                         <ControlTemplate.Triggers>
-                            <!-- 창 어딘가에 마우스가 있을 때만 스크롤바 표시 -->
                             <DataTrigger Binding="{Binding IsMouseOver, RelativeSource={RelativeSource AncestorType=Window}}"
                                          Value="True">
                                 <Setter TargetName="PART_VerticalScrollBar" Property="Opacity" Value="1"/>
@@ -108,12 +132,26 @@
                     <RowDefinition Height="*"/>
                 </Grid.RowDefinitions>
 
-                <TextBlock x:Name="UpcomingHeader"
-                           Grid.Row="0"
-                           Text="예정된 알람"
-                           FontSize="15" FontWeight="Bold"
-                           Foreground="#1565C0"
-                           Margin="16,14,16,8"/>
+                <Grid Grid.Row="0" Margin="16,14,16,8">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+
+                    <TextBlock x:Name="UpcomingHeader"
+                               Grid.Column="0"
+                               Text="예정된 알람"
+                               FontSize="15" FontWeight="Bold"
+                               Foreground="#1565C0"
+                               VerticalAlignment="Center"/>
+
+                    <Button x:Name="SettingsButton"
+                            Grid.Column="1"
+                            Content="⚙"
+                            ToolTip="설정"
+                            Style="{StaticResource IconButtonStyle}"
+                            Click="SettingsButton_Click"/>
+                </Grid>
 
                 <ScrollViewer x:Name="UpcomingScroll" Grid.Row="1" Style="{StaticResource OverlayScrollViewerStyle}">
                     <StackPanel x:Name="UpcomingList" Margin="12,0,12,12"/>

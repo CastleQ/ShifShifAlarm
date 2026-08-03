@@ -51,16 +51,102 @@ namespace EasyAlarm.Services
                 return new List<CalendarInfo>();
             }
 
-            return list.Items
-                .Where(c => c.AccessRole == "owner" || c.AccessRole == "writer")
-                .Select(c => new CalendarInfo
+            List<CalendarInfo> result = new List<CalendarInfo>();
+
+            foreach (CalendarListEntry entry in list.Items)
+            {
+                if (entry.AccessRole != "owner" && entry.AccessRole != "writer")
                 {
-                    Id = c.Id,
-                    Name = string.IsNullOrWhiteSpace(c.Summary) ? c.Id : c.Summary,
-                    IsPrimary = c.Primary == true
-                })
-                .OrderByDescending(c => c.IsPrimary)
-                .ToList();
+                    continue;   // 구독만 한 캘린더는 일정을 넣을 수 없어 제외
+                }
+
+                result.Add(new CalendarInfo
+                {
+                    Id = entry.Id,
+                    Name = await ResolveDisplayNameAsync(service, entry),
+                    IsPrimary = entry.Primary == true
+                });
+            }
+
+            return result.OrderByDescending(c => c.IsPrimary).ToList();
+        }
+
+        /// <summary>
+        /// 캘린더의 표시 이름을 찾아냅니다.
+        /// ⚠️ 구글은 캘린더 이름을 세 곳에 나눠 보관합니다.
+        ///    ① SummaryOverride(내가 붙인 별칭) ② CalendarList.Summary(목록 캐시)
+        ///    ③ Calendars.Summary(캘린더 본체의 실제 이름)
+        ///    특히 기본 캘린더는 ②가 '이메일 주소'로 채워져 있어서,
+        ///    이메일처럼 보이면 다음 후보를 찾아가야 사용자가 보는 이름과 일치합니다.
+        /// </summary>
+        private static async Task<string> ResolveDisplayNameAsync(
+            CalendarService service, CalendarListEntry entry)
+        {
+            if (IsRealName(entry.SummaryOverride))
+            {
+                return entry.SummaryOverride;
+            }
+
+            if (IsRealName(entry.Summary))
+            {
+                return entry.Summary;
+            }
+
+            // 목록에 담긴 이름이 이메일뿐이면, 캘린더 본체를 한 번 더 조회해 실제 이름을 확인
+            try
+            {
+                Google.Apis.Calendar.v3.Data.Calendar detail =
+                    await service.Calendars.Get(entry.Id).ExecuteAsync();
+
+                if (IsRealName(detail.Summary))
+                {
+                    return detail.Summary;
+                }
+            }
+            catch (Exception ex)
+            {
+                LogService.LogError("캘린더 이름 조회", ex);
+            }
+
+            // 끝까지 못 찾으면 있는 값이라도 보여준다 (이메일 표기)
+            if (!string.IsNullOrWhiteSpace(entry.SummaryOverride))
+            {
+                return entry.SummaryOverride;
+            }
+
+            if (!string.IsNullOrWhiteSpace(entry.Summary))
+            {
+                return entry.Summary;
+            }
+
+            return entry.Id;
+        }
+
+        /// <summary>비어있지 않고 이메일 주소 형태도 아닌 '사람이 붙인 이름'인지 판단합니다.</summary>
+        private static bool IsRealName(string? name)
+        {
+            return !string.IsNullOrWhiteSpace(name) && !name.Contains('@');
+        }
+
+        /// <summary>
+        /// 캘린더의 표시 이름을 고릅니다.
+        /// ⚠️ 구글은 기본 캘린더의 Summary에 '이메일 주소'를 넣고,
+        ///    사용자가 바꾼 이름은 SummaryOverride(사용자 지정 이름)에 따로 보관합니다.
+        ///    따라서 사용자 지정 이름이 있으면 그것을 우선해야 실제 화면과 일치합니다.
+        /// </summary>
+        private static string PickDisplayName(CalendarListEntry entry)
+        {
+            if (!string.IsNullOrWhiteSpace(entry.SummaryOverride))
+            {
+                return entry.SummaryOverride;
+            }
+
+            if (!string.IsNullOrWhiteSpace(entry.Summary))
+            {
+                return entry.Summary;
+            }
+
+            return entry.Id;
         }
 
         /// <summary>
@@ -116,32 +202,6 @@ namespace EasyAlarm.Services
         }
 
         /// <summary>
-        /// 이 PC의 시간대를 구글이 이해하는 국제 표기(예: Asia/Seoul)로 바꿉니다.
-        /// 윈도우는 자체 표기("Korea Standard Time")를 쓰므로 변환이 필요합니다.
-        /// </summary>
-        private static string GetIanaTimeZone()
-        {
-            try
-            {
-                if (TimeZoneInfo.Local.HasIanaId)
-                {
-                    return TimeZoneInfo.Local.Id;
-                }
-
-                if (TimeZoneInfo.TryConvertWindowsIdToIanaId(TimeZoneInfo.Local.Id, out string? iana)
-                    && !string.IsNullOrWhiteSpace(iana))
-                {
-                    return iana;
-                }
-            }
-            catch (Exception ex)
-            {
-                LogService.LogError("시간대 변환", ex);
-            }
-
-            return "UTC";   // 변환 실패 시 안전한 기본값
-        }
-        /// <summary>
         /// 이 알람을 구글 캘린더로 보낼 수 있는지 판단합니다.
         /// ⚠️ 분·시간 단위 간격 반복("20분마다")은 구글이 지원하지 않습니다.
         ///    구글 반복 규칙은 일·주·월·년 단위만 허용하며,
@@ -160,6 +220,7 @@ namespace EasyAlarm.Services
             // 일 단위 간격(3일마다 등)만 동기화 가능
             return minutes > 0 && minutes % 1440 == 0;
         }
+
         /// <summary>
         /// 구글 캘린더에서 일정 1건을 삭제합니다.
         /// 반복 일정의 대표 번호를 지우면 모든 회차가 함께 사라집니다.
@@ -186,6 +247,33 @@ namespace EasyAlarm.Services
             {
                 // 사용자가 구글에서 먼저 지운 경우 → 목표 달성이므로 조용히 넘어간다
             }
+        }
+
+        /// <summary>
+        /// 이 PC의 시간대를 구글이 이해하는 국제 표기(예: Asia/Seoul)로 바꿉니다.
+        /// 윈도우는 자체 표기("Korea Standard Time")를 쓰므로 변환이 필요합니다.
+        /// </summary>
+        private static string GetIanaTimeZone()
+        {
+            try
+            {
+                if (TimeZoneInfo.Local.HasIanaId)
+                {
+                    return TimeZoneInfo.Local.Id;
+                }
+
+                if (TimeZoneInfo.TryConvertWindowsIdToIanaId(TimeZoneInfo.Local.Id, out string? iana)
+                    && !string.IsNullOrWhiteSpace(iana))
+                {
+                    return iana;
+                }
+            }
+            catch (Exception ex)
+            {
+                LogService.LogError("시간대 변환", ex);
+            }
+
+            return "UTC";   // 변환 실패 시 안전한 기본값
         }
 
         /// <summary>반복 정보를 국제 표준 반복 규칙(RRULE)으로 번역합니다. 반복이 아니면 null.</summary>
@@ -216,7 +304,8 @@ namespace EasyAlarm.Services
                         return $"RRULE:FREQ=DAILY;INTERVAL={minutes / 1440}";
                     }
 
-                    // 분·시간 단위는 12시간 후 종료 (모바일 알림 폭주 방지)
+                    // 분·시간 단위는 구글이 거부하므로 여기까지 오지 않지만(IsSyncable에서 차단),
+                    // 만약을 위해 12시간 종료 조건을 붙여 둡니다.
                     string until = alarm.AlarmTime
                         .AddHours(IntervalSyncHours)
                         .ToUniversalTime()
@@ -251,6 +340,7 @@ namespace EasyAlarm.Services
 
         /// <summary>
         /// 알림 구성: 캘린더 기본 알림을 그대로 복사하고 정각(0분 전) 알림을 추가합니다.
+        /// ⚠️ 구글 API는 '기본 알림 사용'과 '직접 지정'을 동시에 쓸 수 없어 이렇게 합칩니다.
         /// </summary>
         private static async Task<Event.RemindersData> BuildRemindersAsync(
             CalendarService service, string calendarId)

@@ -133,7 +133,6 @@ namespace EasyAlarm.Views
             InputBox.Clear();
             ShowSuccess(alarm);
         }
-        
 
         /// <summary>성공 피드백: 초록 문구로 안내</summary>
         private void ShowSuccess(AlarmModel alarm)
@@ -142,7 +141,7 @@ namespace EasyAlarm.Views
             HintText.Foreground = SuccessGreen;
             HintText.Text = alarm.IsUntimed
                 ? "✅ 할일 추가! 알람 없이 목록에 담았어요"
-                : $"✅ 등록 완료! {alarm.AlarmTime:MM/dd (ddd) HH:mm}에 알려드릴게요";
+                : $"✅ 등록 완료! {TimeFormatter.Format(alarm.AlarmTime)}에 알려드릴게요";
             _feedbackTimer.Stop();
             _feedbackTimer.Start();
         }

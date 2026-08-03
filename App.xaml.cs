@@ -5,6 +5,7 @@ using System.Windows.Input;
 using System.Windows.Threading;
 using EasyAlarm.Models;
 using EasyAlarm.Services;
+using EasyAlarm.Utils;
 using EasyAlarm.Views;
 using H.NotifyIcon;
 using Microsoft.Toolkit.Uwp.Notifications;
@@ -15,14 +16,14 @@ namespace EasyAlarm;
 
 /// <summary>
 /// 프로그램의 사령탑.
-/// 시작 시: ① 위젯 ② 단축키 ③ 알람 감시자 ④ 알림 버튼 우체통 ⑤ 트레이 아이콘 ⑥ Shift 2연타
-/// 부가: 설정 보관, 구글 캘린더 동기화 배달부(실패분 자동 재시도)
+/// 시작 시: ① 설정·동기화 준비 ② 위젯 ③ 단축키 ④ 알람 감시자 ⑤ 알림 우체통 ⑥ 트레이 ⑦ Shift 2연타
 /// </summary>
 public partial class App : Application
 {
     private DesktopWidgetWindow? _widget;
     private InputPopupWindow? _popup;
     private AlarmListWindow? _listWindow;
+    private SettingsWindow? _settingsWindow;
     private AlarmSchedulerService? _scheduler;
     private TaskbarIcon? _trayIcon;
     private StorageService? _storage;
@@ -56,11 +57,17 @@ public partial class App : Application
     {
         base.OnStartup(e);
         SetupCrashReporter();
+
         _storage = new StorageService();
         _storage.CleanupOldCompleted();   // 30일 지난 완료 알람 자동 정리
 
-        // 설정 + 구글 동기화 배달부 준비 (결과가 나오면 목록 창 갱신)
+        // ① 설정 적용 + 구글 동기화 배달부 준비
         _settings = new SettingsService();
+        AppSettings settings = _settings.Load();
+
+        TimeFormatter.Use24Hour = settings.Use24HourClock;
+        StartupService.Synchronize(settings.StartWithWindows);   // 자동 시작 등록 상태 일치시키기
+
         _sync = new SyncService(_storage, _settings);
         _sync.SyncStateChanged += () => Current.Dispatcher.Invoke(NotifyAlarmsChanged);
 
@@ -80,29 +87,29 @@ public partial class App : Application
         };
         _syncRetryTimer.Start();
 
-        // ① 상주 위젯 가동
+        // ② 상주 위젯 가동
         _widget = new DesktopWidgetWindow();
         _widget.Show();
 
-        // ② 전역 단축키 등록
+        // ③ 전역 단축키 등록
         HotkeyManager.Current.AddOrReplace(
             "ShowAlarmInput",
             Key.Z,
             ModifierKeys.Alt | ModifierKeys.Shift,
             OnHotkeyPressed);
 
-        // ③ 알람 감시자 가동 (장부가 바뀌면 목록 창에 알리도록 종을 연결)
+        // ④ 알람 감시자 가동 (장부가 바뀌면 목록 창에 알리도록 종을 연결)
         _scheduler = new AlarmSchedulerService(_storage, new NotificationService());
         _scheduler.AlarmsChanged += NotifyAlarmsChanged;
         _scheduler.Start();
 
-        // ④ 알림 버튼 우체통
+        // ⑤ 알림 버튼 우체통
         ToastNotificationManagerCompat.OnActivated += OnToastActivated;
 
-        // ⑤ 트레이 아이콘 설치
+        // ⑥ 트레이 아이콘 설치
         SetupTrayIcon();
 
-        // ⑥ Shift 2연타 감지기 가동 (쉽쉽알람 시그니처 단축키)
+        // ⑦ Shift 2연타 감지기 가동 (쉽쉽알람 시그니처 단축키)
         _shiftTap = new ShiftDoubleTapService();
         _shiftTap.DoubleTapDetected += () => Current.Dispatcher.Invoke(() => ShowPopup(string.Empty));
         _shiftTap.Start();
@@ -144,6 +151,38 @@ public partial class App : Application
         _listWindow = new AlarmListWindow();
         _listWindow.Show();
         BringToFront(_listWindow);
+    }
+
+    /// <summary>설정 창을 띄웁니다. (단일 창 원칙 동일 적용)</summary>
+    public void ShowSettings()
+    {
+        if (_settingsWindow != null && _settingsWindow.IsLoaded)
+        {
+            BringToFront(_settingsWindow);
+            return;
+        }
+
+        _settingsWindow = new SettingsWindow();
+        _settingsWindow.Show();
+        BringToFront(_settingsWindow);
+    }
+
+    /// <summary>
+    /// 설정이 바뀌었을 때 앱 전체에 반영합니다. (설정 창이 저장 직후 호출)
+    /// </summary>
+    public void ApplySettings(AppSettings settings)
+    {
+        TimeFormatter.Use24Hour = settings.Use24HourClock;
+
+        // 시각 표기가 바뀌었을 수 있으니 열려 있는 목록 창을 다시 그린다
+        _listWindow?.ForceRefresh();
+    }
+
+    /// <summary>구글 동기화 실패분을 즉시 재시도합니다. (설정 창에서 호출)</summary>
+    public void RetrySync()
+    {
+        _sync?.RetryPendingDeletes();
+        _sync?.RetryFailedUploads();
     }
 
     /// <summary>
@@ -234,60 +273,15 @@ public partial class App : Application
         MenuItem listItem = new MenuItem { Header = "📋 할일 목록" };
         listItem.Click += (s, e) => ShowAlarmList();
 
-        // ── 구글 캘린더 동기화 스위치 (정식 설정 창으로 이전 예정) ──
-        AppSettings current = _settings?.Load() ?? new AppSettings();
-
-        MenuItem syncToggle = new MenuItem
-        {
-            Header = "☁ 구글 캘린더 동기화",
-            IsCheckable = true,
-            IsChecked = current.GoogleSyncEnabled
-        };
-        syncToggle.Click += (s, e) =>
-        {
-            if (_settings == null)
-            {
-                return;
-            }
-
-            AppSettings settings = _settings.Load();
-            settings.GoogleSyncEnabled = syncToggle.IsChecked;
-            _settings.Save(settings);
-
-            if (!settings.GoogleSyncEnabled)
-            {
-                return;
-            }
-
-            if (_sync != null && !_sync.IsReady())
-            {
-                MessageBox.Show(
-                    "동기화를 켰지만 구글 로그인이 아직 안 되어 있습니다.\n\n" +
-                    "'☁ 구글 연결 테스트'를 한 번 실행해 로그인해주세요.",
-                    "구글 캘린더 동기화");
-                return;
-            }
-
-            // 켜는 순간, 그동안 못 올라간 알람들을 바로 밀어 올린다
-            _sync?.RetryFailedUploads();
-        };
-
-        // ── 구글 연동 임시 진단 메뉴 (정식 설정 창 완성 후 제거 예정) ──
-        MenuItem googleTestItem = new MenuItem { Header = "☁ 구글 연결 테스트 (임시)" };
-        googleTestItem.Click += async (s, e) => await TestGoogleConnectionAsync();
-
-        MenuItem googleEventItem = new MenuItem { Header = "☁ 테스트 일정 올리기 (10분 뒤, 임시)" };
-        googleEventItem.Click += async (s, e) => await TestCreateEventAsync();
+        MenuItem settingsItem = new MenuItem { Header = "⚙ 설정" };
+        settingsItem.Click += (s, e) => ShowSettings();
 
         MenuItem exitItem = new MenuItem { Header = "종료" };
         exitItem.Click += (s, e) => ExitApplication();
 
         menu.Items.Add(newAlarmItem);
         menu.Items.Add(listItem);
-        menu.Items.Add(new Separator());
-        menu.Items.Add(syncToggle);
-        menu.Items.Add(googleTestItem);
-        menu.Items.Add(googleEventItem);
+        menu.Items.Add(settingsItem);
         menu.Items.Add(new Separator());
         menu.Items.Add(exitItem);
 
@@ -326,84 +320,5 @@ public partial class App : Application
         _trayIcon?.Dispose();
         _shiftTap?.Dispose();                          // 키보드 감지기 철거
         Shutdown();
-    }
-
-    /// <summary>
-    /// [임시 진단] 구글 로그인 + 캘린더 목록 조회 테스트.
-    /// 정식 설정 창 완성 후 이 메서드와 트레이 메뉴 항목은 제거 예정.
-    /// </summary>
-    private async System.Threading.Tasks.Task TestGoogleConnectionAsync()
-    {
-        try
-        {
-            GoogleAuthService auth = new GoogleAuthService();
-
-            if (!auth.HasSecretFile)
-            {
-                MessageBox.Show(
-                    "구글 인증 파일(client_secret.json)을 찾을 수 없습니다.\n\n" +
-                    "실행 파일과 같은 폴더에 있어야 합니다.",
-                    "구글 연결 테스트");
-                return;
-            }
-
-            GoogleCalendarService calendars = new GoogleCalendarService(auth);
-            System.Collections.Generic.List<CalendarInfo> list = await calendars.GetWritableCalendarsAsync();
-
-            System.Text.StringBuilder sb = new System.Text.StringBuilder();
-            sb.AppendLine($"✅ 연결 성공! 쓰기 가능한 캘린더 {list.Count}개");
-            sb.AppendLine();
-
-            foreach (CalendarInfo c in list)
-            {
-                sb.AppendLine($"{(c.IsPrimary ? "★ " : "· ")}{c.Name}");
-                sb.AppendLine($"   ({c.Id})");
-            }
-
-            MessageBox.Show(sb.ToString(), "구글 연결 테스트");
-        }
-        catch (Exception ex)
-        {
-            LogService.LogError("구글 연결 테스트", ex);
-            MessageBox.Show(
-                $"연결에 실패했습니다.\n\n{ex.GetType().Name}\n{ex.Message}",
-                "구글 연결 테스트");
-        }
-    }
-
-    /// <summary>
-    /// [임시 진단] 10분 뒤 시각으로 구글 캘린더에 테스트 일정 1건을 만듭니다.
-    /// 정식 연동 완성 후 이 메서드와 메뉴 항목은 제거 예정.
-    /// </summary>
-    private async System.Threading.Tasks.Task TestCreateEventAsync()
-    {
-        try
-        {
-            GoogleAuthService auth = new GoogleAuthService();
-            GoogleCalendarService calendar = new GoogleCalendarService(auth);
-
-            DateTime when = DateTime.Now.AddMinutes(10);
-
-            AlarmModel test = new AlarmModel
-            {
-                TaskContent = "구글 연동 테스트",
-                AlarmTime = when,
-                OriginalInput = "10분 뒤 구글 연동 테스트"
-            };
-
-            string eventId = await calendar.CreateEventAsync(test, "primary");
-
-            MessageBox.Show(
-                $"✅ 일정 생성 성공!\n\n{when:MM/dd (ddd) HH:mm}\n구글 연동 테스트\n\n" +
-                $"일정 번호: {eventId}\n\n구글 캘린더(웹·모바일)에서 확인해보세요.",
-                "테스트 일정 올리기");
-        }
-        catch (Exception ex)
-        {
-            LogService.LogError("테스트 일정 생성", ex);
-            MessageBox.Show(
-                $"일정 생성에 실패했습니다.\n\n{ex.GetType().Name}\n{ex.Message}",
-                "테스트 일정 올리기");
-        }
     }
 }

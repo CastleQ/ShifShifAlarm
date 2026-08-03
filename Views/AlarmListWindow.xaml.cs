@@ -8,13 +8,14 @@ using System.Windows.Media;
 using System.Windows.Threading;
 using EasyAlarm.Models;
 using EasyAlarm.Services;
+using EasyAlarm.Utils;
 
 namespace EasyAlarm.Views
 {
     /// <summary>
     /// 등록된 알람을 한눈에 보는 목록 창.
     /// 위 = 예정(시간 알람 임박순 → 무시간 할일) / 아래 = 지난 알람(최신순).
-    /// 알람 추가·울림이 발생하면 사령탑의 지시로 실시간 갱신됩니다.
+    /// 알람 추가·울림·동기화 결과가 생기면 사령탑의 지시로 실시간 갱신됩니다.
     /// </summary>
     public partial class AlarmListWindow : Window
     {
@@ -56,6 +57,21 @@ namespace EasyAlarm.Views
             _lastSignature = signature;
             _rendered = true;
 
+            Render(alarms);
+        }
+
+        /// <summary>
+        /// 데이터가 같아도 무조건 다시 그립니다.
+        /// (시각 표기 형식 변경처럼 '데이터 밖의 이유'로 화면이 달라져야 할 때 사용)
+        /// </summary>
+        public void ForceRefresh()
+        {
+            _rendered = false;
+            Refresh();
+        }
+
+        private void Render(List<AlarmModel> alarms)
+        {
             // 다시 그리면 스크롤이 맨 위로 튕기므로, 현재 위치를 미리 기억해둔다
             double upcomingOffset = UpcomingScroll.VerticalOffset;
             double completedOffset = CompletedScroll.VerticalOffset;
@@ -87,8 +103,8 @@ namespace EasyAlarm.Views
         }
 
         /// <summary>
-        /// 장부의 '지문'을 만듭니다. 항목의 고유번호·완료여부·시각·내용이 모두 같으면 같은 지문.
-        /// 수십 개 규모에서는 비교 비용이 사실상 0입니다.
+        /// 장부의 '지문'을 만듭니다. 항목의 고유번호·완료여부·시각·내용·동기화 상태가
+        /// 모두 같으면 같은 지문 → 다시 그리지 않습니다.
         /// </summary>
         private static string BuildSignature(List<AlarmModel> alarms)
         {
@@ -99,6 +115,7 @@ namespace EasyAlarm.Views
                 sb.Append(alarm.Id).Append('|')
                   .Append(alarm.IsCompleted ? '1' : '0').Append('|')
                   .Append(alarm.AlarmTime.Ticks).Append('|')
+                  .Append((int)alarm.Sync).Append('|')
                   .Append(alarm.TaskContent).Append(';');
             }
 
@@ -163,7 +180,8 @@ namespace EasyAlarm.Views
             }
             else
             {
-                timeText = alarm.AlarmTime.ToString("MM/dd (ddd) HH:mm");
+                timeText = TimeFormatter.Format(alarm.AlarmTime);
+
                 if (alarm.Repeat != RepeatType.None)
                 {
                     string repeatDesc = alarm.Repeat switch
@@ -177,9 +195,11 @@ namespace EasyAlarm.Views
                     };
                     timeText = $"🔁 {repeatDesc} · 다음 {timeText}";
                 }
+
                 timeColor = isCompletedSection ? CompletedTime : UpcomingTime;
             }
-            // 구글 동기화 상태 표식 (연동을 쓰지 않는 경우엔 아무 표시도 하지 않음)
+
+            // 구글 동기화 상태 표식
             timeText += SyncBadge(alarm);
 
             TextBox timeBlock = MakeSelectableText(timeText, 12, timeColor, FontWeights.SemiBold);
@@ -210,7 +230,7 @@ namespace EasyAlarm.Views
                 {
                     string when = alarm.IsUntimed
                         ? "알람없음 · 매일 정오 알림"
-                        : alarm.AlarmTime.ToString("MM/dd (ddd) HH:mm");
+                        : TimeFormatter.Format(alarm.AlarmTime);
 
                     string what = string.IsNullOrWhiteSpace(alarm.TaskContent)
                         ? "(알람)"
@@ -287,6 +307,12 @@ namespace EasyAlarm.Views
             }
         }
 
+        /// <summary>설정 창 열기</summary>
+        private void SettingsButton_Click(object sender, RoutedEventArgs e)
+        {
+            ((App)Application.Current).ShowSettings();
+        }
+
         /// <summary>DayOfWeek를 한글 요일로 번역합니다.</summary>
         private static string ToKoreanDay(DayOfWeek? day)
         {
@@ -316,13 +342,13 @@ namespace EasyAlarm.Views
             }
             return $"{minutes}분";
         }
+
         /// <summary>
         /// 구글 캘린더 동기화 상태를 짧은 표식으로 바꿉니다.
         /// ☁ 완료 / ⏳ 대기 / ⚠ 실패 / 💻 PC 전용(구글 미지원 형식)
         /// </summary>
         private static string SyncBadge(AlarmModel alarm)
         {
-            // 분·시간 간격 반복은 구글이 지원하지 않아 PC에서만 울립니다
             if (alarm.Sync == SyncState.Skipped && !GoogleCalendarService.IsSyncable(alarm))
             {
                 return "  💻 PC 전용";

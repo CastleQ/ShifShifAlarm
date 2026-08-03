@@ -3,6 +3,7 @@ using System.Windows;
 using System.Windows.Media.Animation;
 using System.Windows.Threading;
 using EasyAlarm.Models;
+using EasyAlarm.Utils;
 
 namespace EasyAlarm.Views
 {
@@ -21,7 +22,7 @@ namespace EasyAlarm.Views
             // 무시간 할일은 예약 시각이 의미 없으므로 문구를 달리 표시
             MessageText.Text = alarm.IsUntimed
                 ? "✅ 할일 추가 완료! 알람 없이 목록에 담았어요"
-                : $"✅ 등록 완료! {alarm.AlarmTime:MM/dd (ddd) HH:mm}에 알려드릴게요";
+                : $"✅ 등록 완료! {TimeFormatter.Format(alarm.AlarmTime)}에 알려드릴게요";
 
             // 0.5초 동안 보여준 뒤 퇴장 시작
             _lifeTimer = new DispatcherTimer
