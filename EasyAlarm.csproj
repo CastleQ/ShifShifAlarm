@@ -6,6 +6,10 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
+
+    <!-- ⚠️ 이 줄이 exe 아이콘을 결정합니다. 지우면 기본 아이콘이 됩니다. -->
+    <ApplicationIcon>EasyAlarm.ico</ApplicationIcon>
+
     <AssemblyName>ShifShifAlarm</AssemblyName>
     <AssemblyTitle>쉽쉽알람 (ShifShif Alarm)</AssemblyTitle>
     <Product>쉽쉽알람</Product>
@@ -18,10 +22,12 @@
     <PackageReference Include="NHotkey.Wpf" Version="4.0.0" />
   </ItemGroup>
 
-    <ItemGroup>
+  <ItemGroup>
+    <!-- 트레이 아이콘용: exe 옆에 아이콘 파일도 함께 복사 -->
     <Content Include="EasyAlarm.ico">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
+
     <!-- 구글 인증 파일: exe 옆에 함께 복사 (없어도 빌드는 성공하도록 Condition 지정) -->
     <Content Include="client_secret.json" Condition="Exists('client_secret.json')">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
