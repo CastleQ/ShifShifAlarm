@@ -126,7 +126,10 @@ namespace EasyAlarm.Views
         private void Register(AlarmModel alarm)
         {
             _storage.AddAlarm(alarm);
-            ((App)Application.Current).NotifyAlarmsChanged();   // 열려 있는 목록 창 즉시 갱신
+
+            App app = (App)Application.Current;
+            app.NotifyAlarmsChanged();   // 열려 있는 목록 창 즉시 갱신
+            app.SyncNewAlarm(alarm);     // 구글 캘린더로 백그라운드 전송
 
             SuccessToastWindow toast = new SuccessToastWindow(alarm);
             toast.Show();

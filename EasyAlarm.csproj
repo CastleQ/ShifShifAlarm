@@ -12,6 +12,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Google.Apis.Calendar.v3" Version="1.75.0.4206" />
     <PackageReference Include="H.NotifyIcon.Wpf" Version="2.4.1" />
     <PackageReference Include="Microsoft.Toolkit.Uwp.Notifications" Version="7.1.3" />
     <PackageReference Include="NHotkey.Wpf" Version="4.0.0" />
@@ -19,6 +20,10 @@
 
     <ItemGroup>
     <Content Include="EasyAlarm.ico">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <!-- 구글 인증 파일: exe 옆에 함께 복사 (없어도 빌드는 성공하도록 Condition 지정) -->
+    <Content Include="client_secret.json" Condition="Exists('client_secret.json')">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
   </ItemGroup>

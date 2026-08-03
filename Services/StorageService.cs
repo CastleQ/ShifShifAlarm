@@ -6,15 +6,12 @@ using EasyAlarm.Models;
 
 namespace EasyAlarm.Services
 {
-    /// <summary>
-    /// 알람 데이터를 JSON 파일에 저장/불러오기/삭제하는 창고지기
-    /// </summary>
+    /// <summary>알람 데이터를 JSON 파일에 저장/불러오기/삭제하는 창고지기</summary>
     public class StorageService
     {
         private readonly string _folderPath;
         private readonly string _filePath;
 
-        // 완료된 알람의 보존 기간. 이보다 오래된 완료 항목은 시작 시 자동 파기됩니다.
         private const int CompletedRetentionDays = 30;
 
         private static readonly JsonSerializerOptions _jsonOptions = new JsonSerializerOptions
@@ -33,10 +30,7 @@ namespace EasyAlarm.Services
             Directory.CreateDirectory(_folderPath);
         }
 
-        /// <summary>
-        /// 서류함에서 모든 알람(예정 + 완료)을 꺼내옵니다.
-        /// 파일이 없거나 내용이 깨져 있어도 프로그램이 죽지 않고 빈 목록을 돌려줍니다.
-        /// </summary>
+        /// <summary>서류함에서 모든 알람을 꺼내옵니다. 실패 시 빈 목록.</summary>
         public List<AlarmModel> LoadAlarms()
         {
             try
@@ -62,18 +56,14 @@ namespace EasyAlarm.Services
             }
         }
 
-        /// <summary>
-        /// 알람 목록 전체를 서류함에 저장합니다. (기존 내용은 새 내용으로 교체)
-        /// </summary>
+        /// <summary>알람 목록 전체를 저장합니다.</summary>
         public void SaveAlarms(List<AlarmModel> alarms)
         {
             string json = JsonSerializer.Serialize(alarms, _jsonOptions);
             File.WriteAllText(_filePath, json);
         }
 
-        /// <summary>
-        /// 새 알람 1개를 서류함에 추가합니다.
-        /// </summary>
+        /// <summary>새 알람 1개를 추가합니다.</summary>
         public void AddAlarm(AlarmModel alarm)
         {
             List<AlarmModel> alarms = LoadAlarms();
@@ -81,10 +71,7 @@ namespace EasyAlarm.Services
             SaveAlarms(alarms);
         }
 
-        /// <summary>
-        /// 고유번호(Id)가 일치하는 알람 1개를 서류함에서 삭제합니다.
-        /// (예정/완료 모두에 사용 — 목록 창의 개별 [삭제] 버튼용)
-        /// </summary>
+        /// <summary>고유번호가 일치하는 알람 1개를 삭제합니다.</summary>
         public void DeleteAlarm(Guid id)
         {
             List<AlarmModel> alarms = LoadAlarms();
@@ -92,10 +79,7 @@ namespace EasyAlarm.Services
             SaveAlarms(alarms);
         }
 
-        /// <summary>
-        /// 완료된 알람을 전부 파기합니다. (목록 창의 [전체삭제] 버튼용)
-        /// 예정된 알람은 건드리지 않습니다.
-        /// </summary>
+        /// <summary>완료된 알람을 전부 파기합니다. (전체삭제 버튼용)</summary>
         public void DeleteAllCompleted()
         {
             List<AlarmModel> alarms = LoadAlarms();
@@ -103,10 +87,7 @@ namespace EasyAlarm.Services
             SaveAlarms(alarms);
         }
 
-        /// <summary>
-        /// 보존 기간(30일)이 지난 완료 알람을 자동 파기합니다.
-        /// 프로그램 시작 시 1회 호출됩니다. (업계 관례: 완료 항목 자동 정리)
-        /// </summary>
+        /// <summary>보존 기간(30일)이 지난 완료 알람을 자동 파기합니다.</summary>
         public void CleanupOldCompleted()
         {
             DateTime cutoff = DateTime.Now.AddDays(-CompletedRetentionDays);
@@ -120,6 +101,38 @@ namespace EasyAlarm.Services
             if (removed > 0)
             {
                 SaveAlarms(alarms);
+            }
+        }
+
+        /// <summary>
+        /// 특정 알람의 구글 동기화 결과를 기록합니다.
+        /// (동기화는 백그라운드에서 진행되므로, 결과가 나오는 대로 장부에 도장을 찍는 용도)
+        /// </summary>
+        public void UpdateSyncResult(Guid id, string? googleEventId, SyncState state)
+        {
+            try
+            {
+                List<AlarmModel> alarms = LoadAlarms();
+                AlarmModel? target = alarms.Find(a => a.Id == id);
+
+                if (target == null)
+                {
+                    return;   // 그 사이 삭제된 알람 → 조용히 무시
+                }
+
+                if (googleEventId != null)
+                {
+                    target.GoogleEventId = googleEventId;
+                }
+
+                target.Sync = state;
+                target.SyncAttemptedAt = DateTime.Now;
+
+                SaveAlarms(alarms);
+            }
+            catch (Exception ex)
+            {
+                LogService.LogError("동기화 결과 기록", ex);
             }
         }
     }

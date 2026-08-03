@@ -179,6 +179,8 @@ namespace EasyAlarm.Views
                 }
                 timeColor = isCompletedSection ? CompletedTime : UpcomingTime;
             }
+            // 구글 동기화 상태 표식 (연동을 쓰지 않는 경우엔 아무 표시도 하지 않음)
+            timeText += SyncBadge(alarm);
 
             TextBox timeBlock = MakeSelectableText(timeText, 12, timeColor, FontWeights.SemiBold);
 
@@ -232,6 +234,9 @@ namespace EasyAlarm.Views
                     }
                 }
 
+                // ⚠️ 순서 중요: 로컬에서 지우기 전에 구글 삭제를 예약해야 일정 번호가 살아있다
+                ((App)Application.Current).SyncDeletedAlarm(alarm);
+
                 _storage.DeleteAlarm(alarm.Id);
                 Refresh();
             };
@@ -254,25 +259,29 @@ namespace EasyAlarm.Views
             };
         }
 
-        /// <summary>지난 알람 전체삭제 (확인 다이얼로그 1회)</summary>
+        /// <summary>지난 알람 전체삭제 (확인 다이얼로그 1회 + 구글 일정 동시 삭제)</summary>
         private void DeleteAllButton_Click(object sender, RoutedEventArgs e)
         {
-            int count = _storage.LoadAlarms().Count(a => a.IsCompleted);
+            List<AlarmModel> completed = _storage.LoadAlarms().Where(a => a.IsCompleted).ToList();
 
-            if (count == 0)
+            if (completed.Count == 0)
             {
                 return;
             }
 
             MessageBoxResult answer = MessageBox.Show(
                 this,
-                $"지난 알람 {count}개를 모두 삭제할까요?",
+                $"지난 알람 {completed.Count}개를 모두 삭제할까요?\n\n" +
+                "구글 캘린더에 등록된 일정도 함께 삭제됩니다.",
                 "전체 삭제",
                 MessageBoxButton.YesNo,
                 MessageBoxImage.Question);
 
             if (answer == MessageBoxResult.Yes)
             {
+                // 로컬에서 지우기 전에 구글 삭제 예약 (일정 번호 확보)
+                ((App)Application.Current).SyncDeletedAlarms(completed);
+
                 _storage.DeleteAllCompleted();
                 Refresh();
             }
@@ -306,6 +315,26 @@ namespace EasyAlarm.Views
                 return $"{minutes / 60}시간";
             }
             return $"{minutes}분";
+        }
+        /// <summary>
+        /// 구글 캘린더 동기화 상태를 짧은 표식으로 바꿉니다.
+        /// ☁ 완료 / ⏳ 대기 / ⚠ 실패 / 💻 PC 전용(구글 미지원 형식)
+        /// </summary>
+        private static string SyncBadge(AlarmModel alarm)
+        {
+            // 분·시간 간격 반복은 구글이 지원하지 않아 PC에서만 울립니다
+            if (alarm.Sync == SyncState.Skipped && !GoogleCalendarService.IsSyncable(alarm))
+            {
+                return "  💻 PC 전용";
+            }
+
+            return alarm.Sync switch
+            {
+                SyncState.Synced => "  ☁",
+                SyncState.Pending => "  ⏳",
+                SyncState.Failed => "  ⚠",
+                _ => string.Empty
+            };
         }
     }
 }
