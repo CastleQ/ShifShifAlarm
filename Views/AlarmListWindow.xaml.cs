@@ -180,7 +180,7 @@ namespace EasyAlarm.Views
             }
             else
             {
-                timeText = TimeFormatter.Format(alarm.AlarmTime);
+                timeText = TimeFormatter.FormatRange(alarm.AlarmTime, alarm.DurationMinutes);
 
                 if (alarm.Repeat != RepeatType.None)
                 {

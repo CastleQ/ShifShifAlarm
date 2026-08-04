@@ -122,12 +122,15 @@ public partial class App : Application
         e.Handled = true;
     }
 
-    /// <summary>입력 팝업을 띄웁니다. (이미 있으면 앞으로)</summary>
+    /// <summary>
+    /// 입력 팝업을 띄웁니다. (이미 열려 있으면 그 창을 다시 전면으로)
+    /// 뜬 직후 키보드 포커스까지 확보되므로 마우스 클릭 없이 바로 타이핑할 수 있습니다.
+    /// </summary>
     private void ShowPopup(string prefillText)
     {
         if (_popup != null && _popup.IsLoaded)
         {
-            _popup.Activate();
+            _popup.TakeFocus();   // 이미 열려 있던 창도 확실히 전면 + 입력 포커스
             return;
         }
 

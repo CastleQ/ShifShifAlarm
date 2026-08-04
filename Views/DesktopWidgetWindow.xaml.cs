@@ -141,7 +141,7 @@ namespace EasyAlarm.Views
             HintText.Foreground = SuccessGreen;
             HintText.Text = alarm.IsUntimed
                 ? "✅ 할일 추가! 알람 없이 목록에 담았어요"
-                : $"✅ 등록 완료! {TimeFormatter.Format(alarm.AlarmTime)}에 알려드릴게요";
+                : $"✅ 등록 완료! {TimeFormatter.FormatRange(alarm.AlarmTime, alarm.DurationMinutes)}에 알려드릴게요";
             _feedbackTimer.Stop();
             _feedbackTimer.Start();
         }

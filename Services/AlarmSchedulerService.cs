@@ -62,7 +62,17 @@ namespace EasyAlarm.Services
                 }
 
                 // ── 시간 도래! 알림 발사 ──
-                _notification.ShowAlarmNotification(alarm);
+                // 단, 등록 시점에 이미 시작 시각이 지나 있던 '진행 중 구간'은 알림을 생략한다.
+                // (예: 15:40에 "11시부터 20시까지" 등록 → 캘린더엔 오늘 구간으로 남기고, 지난 시각 알림은 무의미)
+                bool alreadyStartedWhenCreated =
+                    alarm.Repeat == RepeatType.None &&
+                    alarm.DurationMinutes.HasValue &&
+                    alarm.AlarmTime <= alarm.CreatedAt;
+
+                if (!alreadyStartedWhenCreated)
+                {
+                    _notification.ShowAlarmNotification(alarm);
+                }
 
                 if (alarm.Repeat == RepeatType.None)
                 {

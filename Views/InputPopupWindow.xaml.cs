@@ -13,7 +13,7 @@ namespace EasyAlarm.Views
     /// <summary>
     /// 단축키(Alt+Shift+Z 또는 Shift 2연타) 및 '나중에 다시' 버튼으로 호출되는 알람 입력 팝업.
     /// Enter = 등록 / 빈 채로 Enter·Esc·다른 곳 클릭 = 닫기 / 실패 시 빨간 테두리 + 흔들림
-    /// 시간이 없는 입력은 "시간 없이 할일로 등록할까요?" 확인 후 무시간 할일로 등록.
+    /// 뜨는 즉시 키보드 입력을 받도록 최전면 포커스를 강제로 확보합니다(마우스 클릭 불필요).
     /// </summary>
     public partial class InputPopupWindow : Window
     {
@@ -23,8 +23,7 @@ namespace EasyAlarm.Views
         // 문이 이미 닫히는 중인지 표시하는 깃발 (이중 닫힘 크래시 방지)
         private bool _isClosing;
 
-        // 확인창이 떠 있는 동안 '포커스 잃으면 닫힘'을 잠시 잠그는 깃발.
-        // 없으면 확인창이 뜨는 순간 팝업이 스스로 닫혀버립니다.
+        // 확인창이 떠 있는 동안 '포커스 잃으면 닫힘'을 잠시 잠그는 깃발
         private bool _suppressAutoClose;
 
         private static readonly Brush ErrorBorder = new SolidColorBrush(Color.FromRgb(0xE5, 0x39, 0x35));
@@ -36,12 +35,9 @@ namespace EasyAlarm.Views
 
             InputBox.Text = prefillText;
 
-            Loaded += (s, e) =>
-            {
-                Activate();
-                InputBox.Focus();
-                InputBox.SelectAll();
-            };
+            // 창이 실제로 그려진 다음(ContentRendered) 포커스를 강제해야 확실히 먹습니다.
+            // Loaded 시점은 아직 창 핸들 준비가 덜 된 경우가 있어 한 박자 늦춥니다.
+            ContentRendered += (s, e) => TakeFocus();
 
             // 포커스를 잃으면(다른 곳 클릭) 조용히 닫힘
             // 단, 이미 닫히는 중이거나 확인창이 떠 있으면 아무것도 안 함
@@ -52,6 +48,18 @@ namespace EasyAlarm.Views
                     Close();
                 }
             };
+        }
+
+        /// <summary>
+        /// 최전면 + 키보드 포커스를 확보하고 입력칸 내용을 전체 선택합니다.
+        /// (Shift 2연타처럼 백그라운드에서 열린 경우에도 마우스 없이 바로 타이핑 가능)
+        /// </summary>
+        public void TakeFocus()
+        {
+            ForegroundHelper.ForceForeground(this, InputBox);
+
+            InputBox.Focus();
+            InputBox.SelectAll();
         }
 
         /// <summary>닫힘 절차가 시작되는 순간 깃발을 올립니다.</summary>

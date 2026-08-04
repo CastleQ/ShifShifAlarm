@@ -21,7 +21,7 @@ namespace EasyAlarm.Services
             // 무시간 할일은 예약 시각이 의미가 없으므로 성격을 대신 표시
             string subtitle = alarm.IsUntimed
                 ? "알람 미지정 할일 · 매일 정오 알림"
-                : $"예약: {TimeFormatter.Format(alarm.AlarmTime)}";
+                : $"예약: {TimeFormatter.FormatRange(alarm.AlarmTime, alarm.DurationMinutes)}";
 
             new ToastContentBuilder()
                 .AddArgument("alarmId", alarm.Id.ToString())

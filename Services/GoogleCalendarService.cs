@@ -180,7 +180,8 @@ namespace EasyAlarm.Services
                 Start = new EventDateTime { DateTimeDateTimeOffset = start, TimeZone = zone },
                 End = new EventDateTime
                 {
-                    DateTimeDateTimeOffset = start.AddMinutes(EventLengthMinutes),
+                    // 시간 범위 입력("~까지")이 있으면 실제 구간 길이로, 없으면 기본 5분
+                    DateTimeDateTimeOffset = start.AddMinutes(alarm.DurationMinutes ?? EventLengthMinutes),
                     TimeZone = zone
                 },
 
