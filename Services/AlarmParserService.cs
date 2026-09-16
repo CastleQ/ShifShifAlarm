@@ -21,6 +21,9 @@ namespace EasyAlarm.Services
     {
         private const string Eul = @"(?:에(?![가-힣]))?";
 
+        /// <summary>이 시각까지를 '새벽'으로 본다 (한글 시각 해석에서 후순위로 밀리는 기준)</summary>
+        private const int DawnHourLimit = 5;
+
         private static readonly Regex TimerHour = new(
             @"(\d{1,3})\s*시간\s*(?:(\d{1,2})\s*분\s*)?(?:타이머|알람)(?![가-힣])",
             RegexOptions.Compiled);
@@ -47,6 +50,13 @@ namespace EasyAlarm.Services
 
         private static readonly Regex ExplicitDate = new(
             @"(\d{1,2})\s*[월/.]\s*(\d{1,2})\s*일?\s*" + Eul,
+            RegexOptions.Compiled);
+
+        // "내년 3월 5일", "2027년 3월 5일", "27년 3월 5일" 처럼 연도를 직접 말한 경우.
+        // ⚠️ 끝에 `(?![가-힣])`를 붙여야 "27년간 모은 돈" 같은 문장을 연도로 오인하지 않습니다.
+        //    (조사 '에'는 Eul이 먼저 흡수하므로 "27년에"는 정상 인식됩니다)
+        private static readonly Regex ExplicitYear = new(
+            @"(?:(?<rel>내년|올해)|(?<y4>\d{4})\s*년|(?<y2>\d{2})\s*년)\s*" + Eul + @"(?![가-힣])",
             RegexOptions.Compiled);
 
         private static readonly Regex Weekday = new(
@@ -254,19 +264,66 @@ namespace EasyAlarm.Services
 
             if (repeat == RepeatType.None)
             {
+                // 연도를 직접 말했는지 먼저 확인한다 (월·일보다 앞서 떼어내야 "2027년 3월"이 안 엉킨다)
+                int? statedYear = null;
+
+                m = ExplicitYear.Match(working);
+                if (m.Success)
+                {
+                    if (m.Groups["rel"].Success)
+                    {
+                        statedYear = m.Groups["rel"].Value == "내년" ? now.Year + 1 : now.Year;
+                    }
+                    else if (m.Groups["y4"].Success)
+                    {
+                        statedYear = int.Parse(m.Groups["y4"].Value);
+                    }
+                    else
+                    {
+                        statedYear = 2000 + int.Parse(m.Groups["y2"].Value);   // "27년" → 2027년
+                    }
+
+                    working = RemoveMatch(working, m);
+                }
+
                 m = ExplicitDate.Match(working);
                 if (m.Success)
                 {
                     int month = int.Parse(m.Groups[1].Value);
                     int day = int.Parse(m.Groups[2].Value);
 
-                    if (month < 1 || month > 12 ||
-                        day < 1 || day > DateTime.DaysInMonth(now.Year, month))
+                    if (month < 1 || month > 12)
                     {
                         return Fail("날짜 형식을 확인해주세요");
                     }
 
-                    baseDate = new DateTime(now.Year, month, day);
+                    // ── 어느 해로 볼 것인가 ──
+                    // ① 연도를 직접 말했으면 그대로 따른다 (과거 연도면 아래에서 '지난 시간'으로 걸린다)
+                    // ② 이번 달이면 올해로 못 박는다 — 지난 날짜를 적었다면 착오일 가능성이 높으므로
+                    //    내년으로 밀지 않고 '이미 지난 시간'으로 되돌려 사용자가 알아차리게 한다
+                    // ③ 다른 달이면, 이미 지나간 달은 내년으로 넘긴다 (9월에 "3월" = 내년 3월)
+                    int targetYear;
+
+                    if (statedYear.HasValue)
+                    {
+                        targetYear = statedYear.Value;
+                    }
+                    else if (month == now.Month)
+                    {
+                        targetYear = now.Year;
+                    }
+                    else
+                    {
+                        targetYear = month < now.Month ? now.Year + 1 : now.Year;
+                    }
+
+                    // 날짜 유효성은 반드시 확정된 연도로 따진다 (윤년 2월 29일 때문)
+                    if (day < 1 || day > DateTime.DaysInMonth(targetYear, month))
+                    {
+                        return Fail("날짜 형식을 확인해주세요");
+                    }
+
+                    baseDate = new DateTime(targetYear, month, day);
                     dateSpecified = true;
                     working = RemoveMatch(working, m);
                 }
@@ -542,6 +599,14 @@ namespace EasyAlarm.Services
 
         private static int ApplyHint(int hour, string hint)
         {
+            // ⚠️ 12시만 관례가 뒤집힌다.
+            //    '밤 12시'·'오전 12시'·'새벽 12시' = 자정(0시) / '낮 12시'·'정오' = 12시
+            //    12는 아래 1~11시 규칙의 범위 밖이라 그냥 통과해 버리므로 먼저 처리해야 한다.
+            if (hour == 12)
+            {
+                return hint is "밤" or "오전" or "새벽" ? 0 : 12;
+            }
+
             bool isAfternoon = hint is "오후" or "낮" or "저녁" or "밤";
             if (isAfternoon && hour >= 1 && hour <= 11)
             {
@@ -618,24 +683,49 @@ namespace EasyAlarm.Services
             return false;
         }
 
+        /// <summary>
+        /// 한글로 말한 시각("세시")의 오전·오후를 문맥으로 고릅니다.
+        ///
+        /// ⚠️ 새벽(0~5시)은 '다른 후보가 아예 없을 때'만 고릅니다.
+        ///    밤 8시에 "세시에 커피"라고 말하는 사람은 다음날 오후 3시를 뜻하지, 새벽 3시가 아닙니다.
+        ///    진짜 새벽을 원하면 "새벽 세시"라고 붙이면 되고, 그 경우는 힌트가 있으므로
+        ///    이 함수를 타지 않습니다.
+        ///    ※ 숫자 표기("3시", "15시")는 이 함수를 거치지 않습니다 — 24시간제 해석 그대로 유지.
+        /// </summary>
         private static DateTime NearestFuture(DateTime now, int hour, int minute)
         {
             int amHour = hour % 12;
             int pmHour = amHour + 12;
 
             DateTime best = DateTime.MaxValue;
+            DateTime bestDawn = DateTime.MaxValue;   // 새벽 후보는 따로 모아 후순위로 둔다
+
             foreach (int dayOffset in new[] { 0, 1 })
             {
                 foreach (int h in new[] { amHour, pmHour })
                 {
                     DateTime candidate = now.Date.AddDays(dayOffset).AddHours(h).AddMinutes(minute);
-                    if (candidate > now && candidate < best)
+
+                    if (candidate <= now)
+                    {
+                        continue;
+                    }
+
+                    if (h <= DawnHourLimit)
+                    {
+                        if (candidate < bestDawn)
+                        {
+                            bestDawn = candidate;
+                        }
+                    }
+                    else if (candidate < best)
                     {
                         best = candidate;
                     }
                 }
             }
-            return best;
+
+            return best != DateTime.MaxValue ? best : bestDawn;
         }
 
         private static DateTime NextDaily(DateTime now, int hour, int minute)
@@ -700,16 +790,6 @@ namespace EasyAlarm.Services
         private static string RemoveMatch(string text, Match match)
         {
             return text.Remove(match.Index, match.Length);
-        }
-
-        private static string RemoveAndClean(string text, Match match)
-        {
-            return CleanTask(RemoveMatch(text, match));
-        }
-
-        private static string CleanTask(string text)
-        {
-            return Regex.Replace(text, @"\s+", " ").Trim();
         }
 
         private static string FinishTask(string text)

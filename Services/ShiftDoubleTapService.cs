@@ -12,14 +12,14 @@ namespace EasyAlarm.Services
     ///  - Shift를 눌렀다 뗀 것 = 1탭 (꾹 누르고 있는 건 탭 아님)
     ///  - 누르고 있는 동안 다른 키가 끼면 그 탭은 무효 (Shift+A 같은 일반 타이핑 보호)
     ///  - 두 탭 사이에 다른 키가 끼어도 무효
-    ///  - 1탭 → 400ms 이내 → 2탭 = 발동!
+    ///  - 1탭 → 220ms 이내(DoubleTapWindowMs) → 2탭 = 발동!
     /// </summary>
     public class ShiftDoubleTapService : IDisposable
     {
         /// <summary>2연타로 인정할 최대 간격 (밀리초)</summary>
         private const int DoubleTapWindowMs = 220;
 
-        /// <summary>2연타 감지 시 호출되는 이벤트</summary>~
+        /// <summary>2연타 감지 시 호출되는 이벤트</summary>
         public event Action? DoubleTapDetected;
 
         // ── 윈도우 저수준 기능(Win32 API) 선언 ──

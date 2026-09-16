@@ -241,14 +241,8 @@ namespace EasyAlarm.Views
                         ? "이 할일을 삭제할까요?"
                         : "이 예정된 알람을 삭제할까요?";
 
-                    MessageBoxResult answer = MessageBox.Show(
-                        this,
-                        $"{question}\n\n{when}\n{what}",
-                        title,
-                        MessageBoxButton.YesNo,
-                        MessageBoxImage.Warning);
-
-                    if (answer != MessageBoxResult.Yes)
+                    // 무엇을 지우는지 굵게 보여준다 (실수 방지의 핵심)
+                    if (!ConfirmDialogWindow.Ask(this, title, $"{question}\n{when}", what))
                     {
                         return;   // 취소 → 아무 일도 없음
                     }
@@ -289,15 +283,13 @@ namespace EasyAlarm.Views
                 return;
             }
 
-            MessageBoxResult answer = MessageBox.Show(
+            bool answer = ConfirmDialogWindow.Ask(
                 this,
-                $"지난 알람 {completed.Count}개를 모두 삭제할까요?\n\n" +
-                "구글 캘린더에 등록된 일정도 함께 삭제됩니다.",
                 "전체 삭제",
-                MessageBoxButton.YesNo,
-                MessageBoxImage.Question);
+                "아래 항목을 모두 삭제할까요?\n구글 캘린더에 등록된 일정도 함께 삭제됩니다.",
+                $"지난 알람 {completed.Count}개");
 
-            if (answer == MessageBoxResult.Yes)
+            if (answer)
             {
                 // 로컬에서 지우기 전에 구글 삭제 예약 (일정 번호 확보)
                 ((App)Application.Current).SyncDeletedAlarms(completed);

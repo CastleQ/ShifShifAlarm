@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
@@ -24,6 +25,20 @@ namespace EasyAlarm.Services
     public class GoogleCalendarService
     {
         private readonly GoogleAuthService _auth;
+
+        /// <summary>
+        /// 캘린더별 기본 알림 설정 캐시.
+        ///
+        /// 일정을 1건 올릴 때마다 "이 캘린더의 기본 알림이 뭐냐"를 구글에 매번 물어보고 있었습니다.
+        /// 거의 바뀌지 않는 값이라, 앱이 떠 있는 동안 한 번만 물어보고 재사용합니다.
+        /// (실패분 10건을 재시도하면 왕복 20회 → 11회로 줄어듭니다)
+        ///
+        /// ※ 구글 쪽에서 기본 알림을 바꾸면 앱을 다시 켤 때까지 옛 값을 씁니다.
+        ///   알림 시각 자체는 항상 '정각'이 따로 붙으므로 알람을 놓칠 일은 없습니다.
+        /// ※ 업로드와 재시도가 서로 다른 스레드에서 돌 수 있어 ConcurrentDictionary를 씁니다.
+        ///   (운 나쁘면 두 번 조회할 뿐, 어긋나지는 않습니다)
+        /// </summary>
+        private readonly ConcurrentDictionary<string, List<(string Method, int? Minutes)>> _reminderCache = new();
 
         /// <summary>일정 길이(분)</summary>
         private const int EventLengthMinutes = 5;
@@ -126,27 +141,6 @@ namespace EasyAlarm.Services
         private static bool IsRealName(string? name)
         {
             return !string.IsNullOrWhiteSpace(name) && !name.Contains('@');
-        }
-
-        /// <summary>
-        /// 캘린더의 표시 이름을 고릅니다.
-        /// ⚠️ 구글은 기본 캘린더의 Summary에 '이메일 주소'를 넣고,
-        ///    사용자가 바꾼 이름은 SummaryOverride(사용자 지정 이름)에 따로 보관합니다.
-        ///    따라서 사용자 지정 이름이 있으면 그것을 우선해야 실제 화면과 일치합니다.
-        /// </summary>
-        private static string PickDisplayName(CalendarListEntry entry)
-        {
-            if (!string.IsNullOrWhiteSpace(entry.SummaryOverride))
-            {
-                return entry.SummaryOverride;
-            }
-
-            if (!string.IsNullOrWhiteSpace(entry.Summary))
-            {
-                return entry.Summary;
-            }
-
-            return entry.Id;
         }
 
         /// <summary>
@@ -343,10 +337,31 @@ namespace EasyAlarm.Services
         /// 알림 구성: 캘린더 기본 알림을 그대로 복사하고 정각(0분 전) 알림을 추가합니다.
         /// ⚠️ 구글 API는 '기본 알림 사용'과 '직접 지정'을 동시에 쓸 수 없어 이렇게 합칩니다.
         /// </summary>
-        private static async Task<Event.RemindersData> BuildRemindersAsync(
+        private async Task<Event.RemindersData> BuildRemindersAsync(
             CalendarService service, string calendarId)
         {
-            List<EventReminder> reminders = new List<EventReminder>();
+            if (!_reminderCache.TryGetValue(calendarId, out List<(string Method, int? Minutes)>? plan))
+            {
+                plan = await FetchReminderPlanAsync(service, calendarId);
+                _reminderCache[calendarId] = plan;
+            }
+
+            // ⚠️ 캐시에는 '설계도'(방식·분)만 담고, 실제 알림 객체는 일정마다 새로 만듭니다.
+            //    같은 객체를 여러 일정이 공유하면 라이브러리가 내부 값을 덧쓸 때 서로 간섭할 수 있습니다.
+            return new Event.RemindersData
+            {
+                UseDefault = false,
+                Overrides = plan
+                    .Select(r => new EventReminder { Method = r.Method, Minutes = r.Minutes })
+                    .ToList()
+            };
+        }
+
+        /// <summary>캘린더의 기본 알림을 실제로 조회해 '설계도'로 정리합니다. (캐시가 비었을 때만 호출)</summary>
+        private static async Task<List<(string Method, int? Minutes)>> FetchReminderPlanAsync(
+            CalendarService service, string calendarId)
+        {
+            List<(string Method, int? Minutes)> reminders = new List<(string, int?)>();
 
             try
             {
@@ -356,7 +371,7 @@ namespace EasyAlarm.Services
                 {
                     foreach (EventReminder r in entry.DefaultReminders)
                     {
-                        reminders.Add(new EventReminder { Method = r.Method, Minutes = r.Minutes });
+                        reminders.Add((r.Method, r.Minutes));
                     }
                 }
             }
@@ -368,7 +383,7 @@ namespace EasyAlarm.Services
             bool hasExact = reminders.Any(r => r.Minutes == 0 && r.Method == "popup");
             if (!hasExact)
             {
-                reminders.Add(new EventReminder { Method = "popup", Minutes = 0 });
+                reminders.Add(("popup", 0));
             }
 
             if (reminders.Count > MaxReminders)
@@ -380,11 +395,7 @@ namespace EasyAlarm.Services
                     .ToList();
             }
 
-            return new Event.RemindersData
-            {
-                UseDefault = false,
-                Overrides = reminders
-            };
+            return reminders;
         }
     }
 }

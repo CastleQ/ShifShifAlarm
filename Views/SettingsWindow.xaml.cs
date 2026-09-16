@@ -290,6 +290,13 @@ namespace EasyAlarm.Views
         /// <summary>설정을 파일에 쓰고, 앱 전체에 반영하도록 사령탑에 알립니다.</summary>
         private void Save()
         {
+            // ⚠️ 위젯 위치는 이 창이 모르는 사이에 바뀔 수 있습니다(설정 창을 열어둔 채 위젯을 드래그).
+            //    이 창이 들고 있던 옛 값으로 덮어쓰면 방금 옮긴 자리가 날아가므로,
+            //    저장 직전에 파일에서 최신 좌표를 가져와 갈아끼웁니다.
+            AppSettings latest = _settingsService.Load();
+            _settings.WidgetLeft = latest.WidgetLeft;
+            _settings.WidgetTop = latest.WidgetTop;
+
             _settingsService.Save(_settings);
             ((App)Application.Current).ApplySettings(_settings);
         }

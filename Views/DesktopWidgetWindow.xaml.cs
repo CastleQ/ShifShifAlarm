@@ -1,5 +1,6 @@
 using System;
 using System.Windows;
+using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
@@ -17,8 +18,15 @@ namespace EasyAlarm.Views
     {
         private readonly AlarmParserService _parser = new AlarmParserService();
         private readonly StorageService _storage = new StorageService();
+        private readonly SettingsService _settings = new SettingsService();
         private readonly DispatcherTimer _feedbackTimer;
         private readonly DispatcherTimer _watchdogTimer;
+
+        /// <summary>기본 위치에서 화면 가장자리와 띄울 간격(픽셀)</summary>
+        private const double DefaultMargin = 16;
+
+        /// <summary>이만큼도 안 보이면 '화면 밖'으로 판단해 기본 위치로 되돌립니다(픽셀)</summary>
+        private const double MinVisibleSize = 40;
 
         // 색상 팔레트
         private static readonly Brush NormalBorder = new SolidColorBrush(Color.FromRgb(0xCC, 0xCC, 0xCC));
@@ -58,12 +66,71 @@ namespace EasyAlarm.Views
 
         private void OnLoaded(object sender, RoutedEventArgs e)
         {
-            // 화면 우측 하단(작업표시줄 살짝 위)에 자리 잡기
-            Left = SystemParameters.WorkArea.Right - Width - 16;
-            Top = SystemParameters.WorkArea.Bottom - Height - 16;
+            RestorePosition();
 
             // 도구 창으로 전환 → Win+M 생존 + Alt+Tab 목록에서 숨김
             DesktopWindowHelper.PinToDesktop(this);
+        }
+
+        // ── 위젯 위치 기억하기 ──
+
+        /// <summary>
+        /// 지난번에 드래그해 둔 자리로 돌아갑니다.
+        /// 저장된 자리가 없거나, 모니터 구성이 바뀌어 화면 밖이 되었으면 기본 위치로 갑니다.
+        /// </summary>
+        private void RestorePosition()
+        {
+            AppSettings settings = _settings.Load();
+
+            if (settings.WidgetLeft.HasValue && settings.WidgetTop.HasValue &&
+                IsVisibleOnScreen(settings.WidgetLeft.Value, settings.WidgetTop.Value))
+            {
+                Left = settings.WidgetLeft.Value;
+                Top = settings.WidgetTop.Value;
+                return;
+            }
+
+            MoveToDefaultCorner();
+        }
+
+        /// <summary>기본 자리: 화면 우측 하단(작업표시줄 살짝 위)</summary>
+        private void MoveToDefaultCorner()
+        {
+            Left = SystemParameters.WorkArea.Right - Width - DefaultMargin;
+            Top = SystemParameters.WorkArea.Bottom - Height - DefaultMargin;
+        }
+
+        /// <summary>드래그가 끝난 자리를 기억해 둡니다.</summary>
+        private void SavePosition()
+        {
+            // ⚠️ 통째로 덮어쓰면 그 사이 설정 창에서 바꾼 값이 날아갑니다.
+            //    반드시 최신 설정을 다시 읽어와 좌표만 갈아끼웁니다.
+            AppSettings settings = _settings.Load();
+
+            settings.WidgetLeft = Left;
+            settings.WidgetTop = Top;
+
+            _settings.Save(settings);
+        }
+
+        /// <summary>
+        /// 그 자리에 뒀을 때 위젯이 실제로 보이는지 확인합니다.
+        /// 노트북에서 외부 모니터를 빼면 저장된 좌표가 허공이 되어 위젯이 사라지는데,
+        /// 그때 기본 자리로 되돌리기 위한 안전장치입니다.
+        /// </summary>
+        private bool IsVisibleOnScreen(double left, double top)
+        {
+            Rect widget = new Rect(left, top, Width, Height);
+
+            Rect allScreens = new Rect(
+                SystemParameters.VirtualScreenLeft,
+                SystemParameters.VirtualScreenTop,
+                SystemParameters.VirtualScreenWidth,
+                SystemParameters.VirtualScreenHeight);
+
+            widget.Intersect(allScreens);   // 겹치는 부분만 남는다 (안 겹치면 빈 사각형)
+
+            return widget.Width >= MinVisibleSize && widget.Height >= MinVisibleSize;
         }
 
         // ── 입력 처리 ──
@@ -99,14 +166,13 @@ namespace EasyAlarm.Views
             // 시간 표현이 아예 없는 입력 → 무시간 할일로 등록할지 물어본다
             if (result.NoTimeDetected)
             {
-                MessageBoxResult answer = MessageBox.Show(
+                bool answer = ConfirmDialogWindow.Ask(
                     this,
-                    $"시간 없이 할일을 등록할까요?\n\n{text.Trim()}",
                     "알람 없이 등록",
-                    MessageBoxButton.YesNo,
-                    MessageBoxImage.Question);
+                    "시간을 찾지 못했어요. 알람 없이 할일 목록에만 담을까요?",
+                    text.Trim());
 
-                if (answer == MessageBoxResult.Yes)
+                if (answer)
                 {
                     Register(_parser.CreateUntimedTodo(text));
                 }
@@ -124,7 +190,18 @@ namespace EasyAlarm.Views
         /// <summary>알람을 저장하고 입력칸을 비운 뒤 성공 피드백을 표시합니다.</summary>
         private void Register(AlarmModel alarm)
         {
-            _storage.AddAlarm(alarm);
+            // ⚠️ 저장 실패를 조용히 넘기면 사용자가 '등록됐다'고 착각합니다.
+            //    입력 내용은 그대로 두고 오류만 표시해, 바로 다시 시도할 수 있게 합니다.
+            try
+            {
+                _storage.AddAlarm(alarm);
+            }
+            catch (Exception ex)
+            {
+                LogService.LogError("알람 저장", ex);
+                ShowError("저장하지 못했어요. 잠시 뒤 다시 시도해주세요");
+                return;
+            }
 
             App app = (App)Application.Current;
             app.NotifyAlarmsChanged();   // 열려 있는 목록 창 즉시 갱신
@@ -139,9 +216,28 @@ namespace EasyAlarm.Views
         {
             OuterBorder.BorderBrush = NormalBorder;
             HintText.Foreground = SuccessGreen;
-            HintText.Text = alarm.IsUntimed
-                ? "✅ 할일 추가! 알람 없이 목록에 담았어요"
-                : $"✅ 등록 완료! {TimeFormatter.FormatRange(alarm.AlarmTime, alarm.DurationMinutes)}에 알려드릴게요";
+
+            if (alarm.IsUntimed)
+            {
+                HintText.Text = "✅ 할일 추가! 알람 없이 목록에 담았어요";
+            }
+            else
+            {
+                // 올해가 아닌 알람은 연도를 굵게 띄워 한눈에 들어오게 한다.
+                // (날짜를 착각해 지난 달을 적으면 내년으로 잡히는데, 그걸 놓치지 않도록)
+                (string year, string rest) = TimeFormatter.SplitRange(alarm.AlarmTime, alarm.DurationMinutes);
+
+                HintText.Inlines.Clear();
+                HintText.Inlines.Add(new Run("✅ 등록 완료! "));
+
+                if (year.Length > 0)
+                {
+                    HintText.Inlines.Add(new Run(year) { FontWeight = FontWeights.Bold });
+                }
+
+                HintText.Inlines.Add(new Run($"{rest}에 알려드릴게요"));
+            }
+
             _feedbackTimer.Stop();
             _feedbackTimer.Start();
         }
@@ -186,7 +282,10 @@ namespace EasyAlarm.Views
         {
             try
             {
+                // DragMove는 '마우스를 놓을 때까지' 여기서 멈춰 있다가 돌아옵니다.
+                // 그래서 바로 다음 줄이 곧 '드래그가 끝난 시점'입니다.
                 DragMove();
+                SavePosition();
             }
             catch (InvalidOperationException)
             {

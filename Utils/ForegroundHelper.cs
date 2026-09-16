@@ -43,6 +43,15 @@ namespace EasyAlarm.Utils
         private const int SW_SHOW = 5;
 
         /// <summary>
+        /// 지금 사용자가 쓰고 있는 창의 핸들을 돌려줍니다.
+        /// (팝업을 띄우기 '전에' 불러야 의미가 있습니다 — 띄운 뒤에는 우리 창이 잡히므로)
+        /// </summary>
+        public static IntPtr GetActiveWindowHandle()
+        {
+            return GetForegroundWindow();
+        }
+
+        /// <summary>
         /// 창을 최전면으로 끌어올리고 키보드 입력 포커스까지 가져옵니다.
         /// 창이 화면에 표시된 이후(Loaded 이후)에 호출해야 합니다.
         /// </summary>

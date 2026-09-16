@@ -111,15 +111,50 @@ public partial class App : Application
 
         // ⑦ Shift 2연타 감지기 가동 (쉽쉽알람 시그니처 단축키)
         _shiftTap = new ShiftDoubleTapService();
-        _shiftTap.DoubleTapDetected += () => Current.Dispatcher.Invoke(() => ShowPopup(string.Empty));
+
+        // ⚠️ 반드시 BeginInvoke(비동기)여야 합니다. Invoke(동기)를 쓰면 안 됩니다.
+        //
+        // 키보드 감지기의 알림은 '화면 스레드'에서 직접 옵니다. 그래서 Invoke를 쓰면
+        // 기다리지 않고 그 자리에서 실행되어, **Shift를 뗀 키 이벤트가 원래 창에 배달되기도 전에**
+        // 팝업이 떠 버립니다. 그 직후 키 이벤트가 배달되면 원래 창이 전경으로 돌아오고,
+        // 포커스를 빼앗긴 팝업은 자동 닫힘 규칙에 걸려 곧바로 사라집니다.
+        // (Alt+Shift+Z는 윈도우가 키를 미리 소비하는 방식이라 이 문제가 없었습니다)
+        //
+        // BeginInvoke로 넘기면 감지기가 즉시 할 일을 마치고, 키 처리가 다 끝난 뒤에 팝업이 뜹니다.
+        // 덤으로, 저수준 키보드 감지기가 300ms 안에 응답하지 못하면 윈도우가 감지기를 조용히
+        // 해제해 버리는 위험도 함께 사라집니다.
+        _shiftTap.DoubleTapDetected += () => Current.Dispatcher.BeginInvoke(
+            new Action(ShowPopupUnlessFullScreen),
+            DispatcherPriority.Input);
+
         _shiftTap.Start();
     }
 
     /// <summary>Alt+Shift+Z가 눌리면 호출됩니다.</summary>
     private void OnHotkeyPressed(object? sender, HotkeyEventArgs e)
     {
-        ShowPopup(string.Empty);
         e.Handled = true;
+        ShowPopupUnlessFullScreen();
+    }
+
+    /// <summary>
+    /// 전체화면으로 몰입 중이 아닐 때만 입력 팝업을 띄웁니다.
+    ///
+    /// 게임·영상처럼 전체화면으로 뭔가 하는 중이면 조용히 무시합니다.
+    /// 게임에서 Shift 연타는 '달리기 토글'로 흔히 쓰여 오작동이 잦고,
+    /// 전체화면 위에 창이 뜨면 게임이 전체화면 모드에서 튕겨 나가기까지 합니다.
+    ///
+    /// Shift 2연타와 Alt+Shift+Z **두 경로 모두** 이 문을 거칩니다.
+    /// (트레이 메뉴·위젯처럼 사용자가 직접 눌러 부르는 경로는 막지 않습니다)
+    /// </summary>
+    private void ShowPopupUnlessFullScreen()
+    {
+        if (FullScreenDetector.IsFullScreenAppActive())
+        {
+            return;
+        }
+
+        ShowPopup(string.Empty);
     }
 
     /// <summary>
