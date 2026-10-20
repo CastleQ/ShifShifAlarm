@@ -23,10 +23,10 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- 트레이 아이콘용: exe 옆에 아이콘 파일도 함께 복사 -->
-    <Content Include="EasyAlarm.ico">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
+    <!-- 트레이 아이콘용: exe 안에 리소스로 새겨 넣는다.
+         ⚠️ 예전처럼 exe 옆 파일로 두면, 단일 exe 포장 시 아이콘이 exe 안에 묶여 디스크에 없어서
+            트레이 아이콘이 윈도우 기본 ℹ 아이콘으로 떨어진다. -->
+    <Resource Include="EasyAlarm.ico" />
 
     <!-- 구글 인증 파일: exe 옆에 함께 복사 (없어도 빌드는 성공하도록 Condition 지정) -->
     <Content Include="client_secret.json" Condition="Exists('client_secret.json')">

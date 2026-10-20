@@ -45,6 +45,8 @@ namespace EasyAlarm.Views
             Clock24Check.IsChecked = _settings.Use24HourClock;
             UpdateClockHint();
 
+            WidgetCheck.IsChecked = _settings.ShowDesktopWidget;
+
             // 자동 시작: 개발 빌드에서는 조작 불가 (경로 오염 방지)
             if (StartupService.IsDevBuild)
             {
@@ -275,6 +277,30 @@ namespace EasyAlarm.Views
             UpdateClockHint();
         }
 
+        private void WidgetCheck_Changed(object sender, RoutedEventArgs e)
+        {
+            if (_loading)
+            {
+                return;
+            }
+
+            // 위젯 표시는 트레이 메뉴·위젯 우클릭에서도 바뀌므로, 저장은 사령탑 한 곳에 맡긴다
+            ((App)Application.Current).SetWidgetVisible(WidgetCheck.IsChecked == true);
+        }
+
+        /// <summary>
+        /// 설정 창이 열린 채로 다른 곳(트레이·위젯 우클릭)에서 위젯을 켜고 끄면,
+        /// 이 창의 체크박스도 따라 바뀌게 합니다. (사령탑이 호출)
+        /// </summary>
+        public void ReflectWidgetVisible(bool visible)
+        {
+            _settings.ShowDesktopWidget = visible;
+
+            _loading = true;
+            WidgetCheck.IsChecked = visible;
+            _loading = false;
+        }
+
         private void UpdateClockHint()
         {
             bool use24 = Clock24Check.IsChecked == true;
@@ -296,6 +322,7 @@ namespace EasyAlarm.Views
             AppSettings latest = _settingsService.Load();
             _settings.WidgetLeft = latest.WidgetLeft;
             _settings.WidgetTop = latest.WidgetTop;
+            _settings.ShowDesktopWidget = latest.ShowDesktopWidget;   // 위젯 표시도 같은 이유 (주인: 사령탑)
 
             _settingsService.Save(_settings);
             ((App)Application.Current).ApplySettings(_settings);

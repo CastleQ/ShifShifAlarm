@@ -24,6 +24,12 @@ namespace EasyAlarm.Models
         /// <summary>24시간제 표기 사용 (기본 켜짐 / 끄면 오전·오후 표기)</summary>
         public bool Use24HourClock { get; set; } = true;
 
+        /// <summary>
+        /// 바탕화면 입력 위젯 표시 (기본 켜짐 / 끄면 Shift 2연타·Alt+Shift+Z·트레이로만 입력)
+        /// 위젯이 늘 떠 있는 게 거슬리는 사람을 위한 스위치.
+        /// </summary>
+        public bool ShowDesktopWidget { get; set; } = true;
+
         // ─────────────── 위젯 위치 ───────────────
         // 사용자가 드래그해 옮긴 자리를 기억합니다.
         // null이면 '아직 옮긴 적 없음' → 기본 위치(우측 하단)에 자리 잡습니다.

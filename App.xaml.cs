@@ -31,6 +31,7 @@ public partial class App : Application
     private SettingsService? _settings;
     private SyncService? _sync;
     private DispatcherTimer? _syncRetryTimer;
+    private MenuItem? _widgetMenuItem;
 
     /// <summary>
     /// [진단 장치] 예기치 못한 오류를 조용히 로그 파일에 기록합니다.
@@ -87,9 +88,8 @@ public partial class App : Application
         };
         _syncRetryTimer.Start();
 
-        // ② 상주 위젯 가동
-        _widget = new DesktopWidgetWindow();
-        _widget.Show();
+        // ② 상주 위젯 가동 (설정에서 끈 사람은 띄우지 않음)
+        ApplyWidgetVisibility(settings.ShowDesktopWidget);
 
         // ③ 전역 단축키 등록
         HotkeyManager.Current.AddOrReplace(
@@ -216,6 +216,51 @@ public partial class App : Application
         _listWindow?.ForceRefresh();
     }
 
+    /// <summary>
+    /// 바탕화면 위젯을 켜거나 끄고, 그 선택을 설정 파일에 기억합니다.
+    /// (설정 창 체크박스 · 트레이 메뉴 · 위젯 우클릭 메뉴 세 곳이 모두 이 창구를 씁니다)
+    ///
+    /// ⚠️ 설정 파일을 통째로 덮어쓰지 않고, 최신 설정을 다시 읽어 이 항목만 갈아끼웁니다.
+    ///    (설정 창이 열려 있으면 그 창의 체크박스도 함께 맞춰 줍니다)
+    /// </summary>
+    public void SetWidgetVisible(bool visible)
+    {
+        if (_settings != null)
+        {
+            AppSettings latest = _settings.Load();
+            latest.ShowDesktopWidget = visible;
+            _settings.Save(latest);
+        }
+
+        ApplyWidgetVisibility(visible);
+
+        if (_settingsWindow != null && _settingsWindow.IsLoaded)
+        {
+            _settingsWindow.ReflectWidgetVisible(visible);
+        }
+    }
+
+    /// <summary>위젯을 실제로 보이거나 숨깁니다. (설정 저장은 하지 않음)</summary>
+    private void ApplyWidgetVisibility(bool visible)
+    {
+        if (visible)
+        {
+            // 처음 켜는 순간에 만든다 — 꺼 둔 사람은 위젯 창 자체가 생기지 않는다
+            _widget ??= new DesktopWidgetWindow();
+            _widget.Show();
+        }
+        else
+        {
+            // 닫지(Close) 않고 숨기기만 한다 → 다시 켤 때 위치·입력 상태 그대로
+            _widget?.Hide();
+        }
+
+        if (_widgetMenuItem != null)
+        {
+            _widgetMenuItem.IsChecked = visible;
+        }
+    }
+
     /// <summary>구글 동기화 실패분을 즉시 재시도합니다. (설정 창에서 호출)</summary>
     public void RetrySync()
     {
@@ -311,6 +356,16 @@ public partial class App : Application
         MenuItem listItem = new MenuItem { Header = "📋 할일 목록" };
         listItem.Click += (s, e) => ShowAlarmList();
 
+        // 위젯을 끈 사람이 다시 켤 수 있는 길 (설정 창에도 같은 스위치가 있음)
+        MenuItem widgetItem = new MenuItem
+        {
+            Header = "바탕화면 위젯 표시",
+            IsCheckable = true,
+            IsChecked = _widget != null && _widget.IsVisible
+        };
+        widgetItem.Click += (s, e) => SetWidgetVisible(widgetItem.IsChecked);
+        _widgetMenuItem = widgetItem;
+
         MenuItem settingsItem = new MenuItem { Header = "⚙ 설정" };
         settingsItem.Click += (s, e) => ShowSettings();
 
@@ -319,28 +374,16 @@ public partial class App : Application
 
         menu.Items.Add(newAlarmItem);
         menu.Items.Add(listItem);
+        menu.Items.Add(_widgetMenuItem);
         menu.Items.Add(settingsItem);
         menu.Items.Add(new Separator());
         menu.Items.Add(exitItem);
-
-        // 아이콘 이미지 불러오기 (실패 시 기본 ℹ️ 아이콘으로 대체하는 안전장치)
-        System.Drawing.Icon trayIconImage;
-        try
-        {
-            trayIconImage = new System.Drawing.Icon(
-                System.IO.Path.Combine(AppContext.BaseDirectory, "EasyAlarm.ico"));
-        }
-        catch (Exception ex)
-        {
-            LogService.LogError("트레이 아이콘 로드", ex);
-            trayIconImage = System.Drawing.SystemIcons.Information;
-        }
 
         _trayIcon = new TaskbarIcon
         {
             ToolTipText = "쉽쉽알람 — 우클릭으로 메뉴",
             ContextMenu = menu,
-            Icon = trayIconImage
+            Icon = LoadTrayIcon()
         };
 
         // 아이콘 더블클릭 → 새 알람 입력창
@@ -349,6 +392,60 @@ public partial class App : Application
         // 트레이에 '실제로 등록'하는 명령 (H.NotifyIcon 2.x 필수)
         _trayIcon.ForceCreate();
     }
+
+    /// <summary>
+    /// 트레이 아이콘 이미지를 exe 안의 리소스에서 꺼냅니다.
+    ///
+    /// ⚠️ 예전에는 exe 옆의 EasyAlarm.ico 파일을 읽었는데, 단일 exe로 포장하면 그 파일이
+    ///    exe 안에 묶여 디스크에 없어서 로드가 실패 → 윈도우 기본 ℹ 아이콘이 떴습니다.
+    ///    리소스로 새겨 두면 어떤 포장 방식이든, exe만 옮겨도 항상 같은 아이콘이 나옵니다.
+    ///
+    /// 트레이 칸 크기(화면 배율에 따라 16·20·24px…)에 맞는 프레임을 골라야 흐릿하지 않습니다.
+    /// </summary>
+    private static System.Drawing.Icon LoadTrayIcon()
+    {
+        try
+        {
+            System.Windows.Resources.StreamResourceInfo? resource =
+                GetResourceStream(new Uri("pack://application:,,,/EasyAlarm.ico"));
+
+            if (resource != null)
+            {
+                using System.IO.Stream stream = resource.Stream;
+                return new System.Drawing.Icon(
+                    stream,
+                    GetSystemMetrics(SmallIconWidth),
+                    GetSystemMetrics(SmallIconHeight));
+            }
+        }
+        catch (Exception ex)
+        {
+            LogService.LogError("트레이 아이콘 로드", ex);
+        }
+
+        // 2차 안전장치: exe에 새겨진 프로그램 아이콘이라도 가져온다
+        try
+        {
+            if (Environment.ProcessPath != null &&
+                System.Drawing.Icon.ExtractAssociatedIcon(Environment.ProcessPath) is { } exeIcon)
+            {
+                return exeIcon;
+            }
+        }
+        catch (Exception ex)
+        {
+            LogService.LogError("트레이 아이콘 로드(exe)", ex);
+        }
+
+        return System.Drawing.SystemIcons.Information;
+    }
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern int GetSystemMetrics(int index);
+
+    /// <summary>작은 아이콘(트레이·제목 표시줄)의 가로/세로 크기 번호</summary>
+    private const int SmallIconWidth = 49;
+    private const int SmallIconHeight = 50;
 
     /// <summary>우아한 종료: 자원을 정리하고 프로그램을 끝냅니다.</summary>
     private void ExitApplication()

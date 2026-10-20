@@ -1,5 +1,6 @@
 using System;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
@@ -62,6 +63,13 @@ namespace EasyAlarm.Views
             _watchdogTimer.Start();
 
             Loaded += OnLoaded;
+
+            // 우클릭 → 위젯 숨기기 (입력칸 위에서는 입력칸 고유의 복사·붙여넣기 메뉴가 그대로 뜸)
+            // 늘 떠 있는 게 거슬리는 사람이 그 자리에서 바로 치울 수 있게 합니다.
+            MenuItem hideItem = new MenuItem { Header = "위젯 숨기기 (트레이 아이콘 메뉴에서 다시 켤 수 있어요)" };
+            hideItem.Click += (s, e) => ((App)Application.Current).SetWidgetVisible(false);
+            ContextMenu = new ContextMenu();
+            ContextMenu.Items.Add(hideItem);
         }
 
         private void OnLoaded(object sender, RoutedEventArgs e)
